@@ -39,10 +39,19 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-UART_HandleTypeDef huart1;
+CAN_HandleTypeDef hcan;
+
+I2C_HandleTypeDef hi2c1;
+
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
+
+CAN_TxHeaderTypeDef   TxHeader;
+CAN_RxHeaderTypeDef   RxHeader;
+uint8_t               TxData[4];
+uint8_t               RxData[4];
+uint32_t              TxMailbox;
 
 /* USER CODE END PV */
 
@@ -50,7 +59,8 @@ UART_HandleTypeDef huart2;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_USART2_UART_Init(void);
-static void MX_USART1_UART_Init(void);
+static void MX_I2C1_Init(void);
+static void MX_CAN_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -89,9 +99,12 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_USART2_UART_Init();
-  MX_USART1_UART_Init();
+  MX_I2C1_Init();
+  MX_CAN_Init();
   /* USER CODE BEGIN 2 */
-  uint8_t buf[30];
+  volatile uint8_t buf[4];
+  uint8_t send_ok[] = "CAN SEND OK\r\n";
+  uint8_t send_bad[] = "CAN SEND ERROR\r\n";
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -103,12 +116,66 @@ int main(void)
     /* USER CODE BEGIN 3 */
 	//strcpy(buf, "hello world\r\n");
 	//HAL_UART_Transmit(&huart2, buf, strlen(buf) + 1, 200);
-	HAL_StatusTypeDef recvnum = HAL_UART_Receive(&huart1, buf, 22, 1000);
-	if(recvnum != HAL_OK){
+	//HAL_StatusTypeDef recvnum = HAL_UART_Receive(&huart1, buf, 22, HAL_MAX_DELAY);
+	//if(recvnum != HAL_OK){
 		//strcpy(buf, "ERROR!");
-	}
-	buf[21] = '\0';
-	HAL_UART_Transmit(&huart2, buf, 22, 200);
+	//}
+	uint8_t printWord[20];
+	uint8_t printWord2[20];
+
+
+	HAL_StatusTypeDef rcvSt =  HAL_I2C_Slave_Receive(&hi2c1, &buf[0], 1, HAL_MAX_DELAY);
+  	//strcpy(buf, "hello\n");
+  	//HAL_UART_Transmit(&huart2, buf, 4, 200);
+  	//HAL_UART_Transmit(&huart2, "\r\n", 3, 200);
+	//HAL_UART_Transmit(&huart2, "first: ", sizeof("first: "), 200);
+  	HAL_UART_Transmit(&huart2, &buf[0], 1, 200);
+  	HAL_I2C_Slave_Receive(&hi2c1, &buf[1], 1, HAL_MAX_DELAY);
+  	//HAL_UART_Transmit(&huart2, ", second: ", sizeof(", second:"), 200);
+  	HAL_UART_Transmit(&huart2, &buf[1], 1, 200);
+  	HAL_I2C_Slave_Receive(&hi2c1, &buf[2], 1, HAL_MAX_DELAY);
+  	//HAL_UART_Transmit(&huart2, ", thrid: ", sizeof(", thrid: "), 200);
+  	HAL_UART_Transmit(&huart2, &buf[2], 1, 200);
+  	HAL_I2C_Slave_Receive(&hi2c1, &buf[3], 1, HAL_MAX_DELAY);
+  	//HAL_UART_Transmit(&huart2, ", fourth:", sizeof(", fourth: "), 200);
+	HAL_UART_Transmit(&huart2, &buf[3], 1, 200);
+	HAL_UART_Transmit(&huart2, "\r\n", 3, 200);
+  	/*
+  	if(buf[1] > 50){
+  		TxData[1] = 100;
+  		HAL_UART_Transmit(&huart2, "Throttle\r\n", strlen("Throttle\r\n") + 1, 200);
+  	}else{
+  		TxData[1] = 0;
+  		HAL_UART_Transmit(&huart2, "No Thr\r\n", strlen("No Thr\r\n") + 1, 200);
+  	}
+  	*/
+
+  	TxData[0] = buf[0]; //Wheel Angle (25-125
+  	TxData[1] = buf[1]; // Throttle Angle (0-100)
+  	TxData[2] = buf[2]; // Brake (0-100)
+  	TxData[3] = buf[3]; // Blinkers (0, 1, 2)
+
+  	if (HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox) != HAL_OK)
+  	{
+
+  	  //Transmission request Error
+
+  		HAL_StatusTypeDef status = HAL_UART_Transmit(&huart2,send_bad,sizeof(send_bad),100);// Sending in normal mode
+  		if (status == HAL_OK) {
+  		}
+  	  Error_Handler();
+  	}
+  	HAL_Delay(10);
+  	HAL_StatusTypeDef status = HAL_UART_Transmit(&huart2,send_ok,sizeof(send_ok),100);// Sending in normal mode
+  	if (status == HAL_OK) {
+  		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+  	}
+
+
+
+
+
+
 
 	//strcpy(buf, "YOOOO!\r\n");
 	//HAL_UART_Transmit(&huart2, buf, strlen(buf) + 1, HAL_MAX_DELAY);
@@ -117,7 +184,6 @@ int main(void)
 //	HAL_UART_Receive(&huart1, buf, 20, HAL_MAX_DELAY);
 //	HAL_UART_Transmit(&huart2, buf, 20, HAL_MAX_DELAY);
 
-	HAL_Delay(50);
   }
   /* USER CODE END 3 */
 }
@@ -160,9 +226,9 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART1|RCC_PERIPHCLK_USART2;
-  PeriphClkInit.Usart1ClockSelection = RCC_USART1CLKSOURCE_PCLK2;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2|RCC_PERIPHCLK_I2C1;
   PeriphClkInit.Usart2ClockSelection = RCC_USART2CLKSOURCE_PCLK1;
+  PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
@@ -170,37 +236,128 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief USART1 Initialization Function
+  * @brief CAN Initialization Function
   * @param None
   * @retval None
   */
-static void MX_USART1_UART_Init(void)
+static void MX_CAN_Init(void)
 {
 
-  /* USER CODE BEGIN USART1_Init 0 */
+  /* USER CODE BEGIN CAN_Init 0 */
+	CAN_FilterTypeDef  sFilterConfig;
 
-  /* USER CODE END USART1_Init 0 */
 
-  /* USER CODE BEGIN USART1_Init 1 */
+  /* USER CODE END CAN_Init 0 */
 
-  /* USER CODE END USART1_Init 1 */
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 9600;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
+  /* USER CODE BEGIN CAN_Init 1 */
+
+  /* USER CODE END CAN_Init 1 */
+  hcan.Instance = CAN;
+  hcan.Init.Prescaler = 16;
+  hcan.Init.Mode = CAN_MODE_NORMAL;
+  hcan.Init.SyncJumpWidth = CAN_SJW_1TQ;
+  hcan.Init.TimeSeg1 = CAN_BS1_9TQ;
+  hcan.Init.TimeSeg2 = CAN_BS2_8TQ;
+  hcan.Init.TimeTriggeredMode = DISABLE;
+  hcan.Init.AutoBusOff = DISABLE;
+  hcan.Init.AutoWakeUp = DISABLE;
+  hcan.Init.AutoRetransmission = DISABLE;
+  hcan.Init.ReceiveFifoLocked = DISABLE;
+  hcan.Init.TransmitFifoPriority = DISABLE;
+  if (HAL_CAN_Init(&hcan) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN USART1_Init 2 */
+  /* USER CODE BEGIN CAN_Init 2 */
 
-  /* USER CODE END USART1_Init 2 */
+	sFilterConfig.FilterIdHigh = 0x0000;
+	sFilterConfig.FilterIdLow = 0x0000;
+	sFilterConfig.FilterMaskIdHigh = 0x0000;
+	sFilterConfig.FilterMaskIdLow = 0x0000;
+	sFilterConfig.FilterFIFOAssignment = 0;
+	sFilterConfig.FilterBank = 0;
+	sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
+	sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
+	sFilterConfig.FilterActivation = ENABLE;
+	sFilterConfig.SlaveStartFilterBank = 14;
+
+	if (HAL_CAN_ConfigFilter(&hcan, &sFilterConfig) != HAL_OK)
+	  {
+		/* Filter configuration Error */
+		Error_Handler();
+	  }
+
+  /*##-3- Start the CAN peripheral ###########################################*/
+  if (HAL_CAN_Start(&hcan) != HAL_OK)
+  {
+	/* Start Error */
+	Error_Handler();
+  }
+
+  /*##-4- Activate CAN RX notification #######################################*/
+  if (HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK)
+  {
+	/* Notification Error */
+	Error_Handler();
+  }
+
+  /*##-5- Configure Transmission process #####################################*/
+  TxHeader.StdId = 0x320;
+  TxHeader.ExtId = 0x01;
+  TxHeader.RTR = CAN_RTR_DATA;
+  TxHeader.IDE = CAN_ID_STD;
+  TxHeader.DLC = 4;
+  TxHeader.TransmitGlobalTime = DISABLE;
+
+  /* USER CODE END CAN_Init 2 */
+
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.Timing = 0x2000090E;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
 
 }
 
@@ -273,6 +430,36 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+/**
+  * @brief  Rx Fifo 0 message pending callback
+  * @param  hcan: pointer to a CAN_HandleTypeDef structure that contains
+  *         the configuration information for the specified CAN.
+  * @retval None
+  */
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
+{
+  /* Get RX message */
+  if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData) != HAL_OK)
+  {
+    /* Reception Error */
+    Error_Handler();
+  }
+
+  /* Display LEDx */
+  if ((RxHeader.StdId == 0x321))
+  {
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5,RxData[0]);
+  }
+  uint8_t can_rcv[] = "CAN RCV OK\r\n";
+  HAL_StatusTypeDef status1 = HAL_UART_Transmit(&huart2,can_rcv,sizeof(can_rcv),100);// Sending in normal mode
+	if (status1 == HAL_OK) {
+
+	}
+
+	if (RxHeader.StdId == 0x322) {
+
+	}
+}
 
 /* USER CODE END 4 */
 
