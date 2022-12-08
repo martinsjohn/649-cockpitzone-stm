@@ -35,6 +35,8 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
+#define LEFT_THOLD 87
+#define RIGHT_THOLD 67
 
 /* USER CODE END PM */
 
@@ -52,6 +54,16 @@ CAN_RxHeaderTypeDef   RxHeader;
 uint8_t               TxData[4];
 uint8_t               RxData[4];
 uint32_t              TxMailbox;
+
+//Initial Values of
+uint8_t currWheel = 75;
+uint8_t currThrottle = 0;
+uint8_t currBrake = 0;
+uint8_t current_blink = 0;
+uint8_t blinking = 0;
+uint8_t currBlinkCount = 0;
+uint8_t maxBlinkCount = 25;
+uint8_t blinkSend = 0;
 
 /* USER CODE END PV */
 
@@ -120,26 +132,25 @@ int main(void)
 	//if(recvnum != HAL_OK){
 		//strcpy(buf, "ERROR!");
 	//}
-	uint8_t printWord[20];
-	uint8_t printWord2[20];
 
 
-	HAL_StatusTypeDef rcvSt =  HAL_I2C_Slave_Receive(&hi2c1, &buf[0], 1, HAL_MAX_DELAY);
+	//HAL_StatusTypeDef rcvSt =
+	HAL_I2C_Slave_Receive(&hi2c1, &buf[0], 1, HAL_MAX_DELAY);
   	//strcpy(buf, "hello\n");
   	//HAL_UART_Transmit(&huart2, buf, 4, 200);
   	//HAL_UART_Transmit(&huart2, "\r\n", 3, 200);
 	//HAL_UART_Transmit(&huart2, "first: ", sizeof("first: "), 200);
-  	HAL_UART_Transmit(&huart2, &buf[0], 1, 200);
+  	//HAL_UART_Transmit(&huart2, &buf[0], 1, 200);
   	HAL_I2C_Slave_Receive(&hi2c1, &buf[1], 1, HAL_MAX_DELAY);
   	//HAL_UART_Transmit(&huart2, ", second: ", sizeof(", second:"), 200);
-  	HAL_UART_Transmit(&huart2, &buf[1], 1, 200);
+  	//HAL_UART_Transmit(&huart2, &buf[1], 1, 200);
   	HAL_I2C_Slave_Receive(&hi2c1, &buf[2], 1, HAL_MAX_DELAY);
   	//HAL_UART_Transmit(&huart2, ", thrid: ", sizeof(", thrid: "), 200);
-  	HAL_UART_Transmit(&huart2, &buf[2], 1, 200);
+  	//HAL_UART_Transmit(&huart2, &buf[2], 1, 200);
   	HAL_I2C_Slave_Receive(&hi2c1, &buf[3], 1, HAL_MAX_DELAY);
   	//HAL_UART_Transmit(&huart2, ", fourth:", sizeof(", fourth: "), 200);
-	HAL_UART_Transmit(&huart2, &buf[3], 1, 200);
-	HAL_UART_Transmit(&huart2, "\r\n", 3, 200);
+	//HAL_UART_Transmit(&huart2, &buf[3], 1, 200);
+	//HAL_UART_Transmit(&huart2, "\r\n", 3, 200);
   	/*
   	if(buf[1] > 50){
   		TxData[1] = 100;
@@ -150,10 +161,100 @@ int main(void)
   	}
   	*/
 
+
+
+
+
+// blinking
+// 0 - no blink
+// 1 - left blink
+// 2 - right blink
+// 3 - both blink
+
+
+if (current_blink == 0 && buf[3] > 0) { // blink button pressed down
+    if (blinking == 1 && buf[3] == 2) {
+        blinking = 2;
+        blinkSend = 2;
+    }
+    else if (blinking == 1 && buf[3] == 1){
+    	blinking = 0;
+    }
+    else if (blinking == 2 && buf[3] == 1){
+    	blinking = 1;
+    	blinkSend = 1;
+    }
+    else if (blinking == 2 && buf[3] == 2){
+    	blinking = 0;
+    }
+    else {
+        blinking = buf[3];
+        blinkSend = buf[3];
+    }
+    current_blink = buf[3];
+} else if (current_blink > 0 && buf[3] == 0) { // blink button released
+    current_blink = 0;
+}
+
+
+if (blinking == 1 && currWheel >= LEFT_THOLD && buf[0] < LEFT_THOLD) {
+    blinking = 0;
+    blinkSend = 0;
+}
+
+if (blinking == 2 && currWheel <= RIGHT_THOLD && buf[0] > RIGHT_THOLD) {
+    blinking = 0;
+    blinkSend = 0;
+}
+
+currWheel = buf[0];
+
+
+
+
+
+	/*
+  	//Toggle blink on for button press
+  	if((currBlink == 0) && (buf[3] > 0)){
+  		currBlink = buf[3];
+  		if(blinkOn == 0){
+  			blinkOn = buf[3];
+  		}else{
+  			blinkOn = 0;
+  		}
+
+  	}
+  	//Toggle blink off for button release
+  	else if((currBlink > 0) && (buf[3] == 0)){
+  		currBlink = 0;
+  	}
+  	*/
+
+
+	if(blinking > 0){
+		currBlinkCount ++;
+		if(currBlinkCount >= maxBlinkCount){
+			currBlinkCount = 0;
+			if(blinkSend == 0){
+				blinkSend = blinking;
+			}
+			else{
+				blinkSend = 0;
+			}
+		}
+	}
+	else{
+		currBlinkCount = 0;
+		blinkSend = 0;
+	}
+
+
+
+
   	TxData[0] = buf[0]; //Wheel Angle (25-125
   	TxData[1] = buf[1]; // Throttle Angle (0-100)
   	TxData[2] = buf[2]; // Brake (0-100)
-  	TxData[3] = buf[3]; // Blinkers (0, 1, 2)
+  	TxData[3] = blinkSend; // Blinkers (0, 1, 2)
 
   	if (HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox) != HAL_OK)
   	{
@@ -170,6 +271,7 @@ int main(void)
   	if (status == HAL_OK) {
   		HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
   	}
+
 
 
 
