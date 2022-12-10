@@ -51,8 +51,8 @@ UART_HandleTypeDef huart2;
 
 CAN_TxHeaderTypeDef   TxHeader;
 CAN_RxHeaderTypeDef   RxHeader;
-uint8_t               TxData[4];
-uint8_t               RxData[4];
+uint8_t               TxData[8];
+uint8_t               RxData[8];
 uint32_t              TxMailbox;
 
 //Initial Values of
@@ -64,6 +64,7 @@ uint8_t blinking = 0;
 uint8_t currBlinkCount = 0;
 uint8_t maxBlinkCount = 25;
 uint8_t blinkSend = 0;
+uint8_t globalFail = 0;
 
 /* USER CODE END PV */
 
@@ -172,7 +173,9 @@ int main(void)
 // 3 - both blink
 
 
-if (current_blink == 0 && buf[3] > 0) { // blink button pressed down
+
+
+if (current_blink == 0 && buf[3] > 0 && (globalFail == 0)) { // blink button pressed down
     if (blinking == 1 && buf[3] == 2) {
         blinking = 2;
         blinkSend = 2;
@@ -192,9 +195,11 @@ if (current_blink == 0 && buf[3] > 0) { // blink button pressed down
         blinkSend = buf[3];
     }
     current_blink = buf[3];
-} else if (current_blink > 0 && buf[3] == 0) { // blink button released
+} else if (current_blink > 0 && buf[3] == 0 && (globalFail == 0)) { // blink button released
     current_blink = 0;
 }
+
+
 
 
 if (blinking == 1 && currWheel >= LEFT_THOLD && buf[0] < LEFT_THOLD) {
@@ -208,9 +213,6 @@ if (blinking == 2 && currWheel <= RIGHT_THOLD && buf[0] > RIGHT_THOLD) {
 }
 
 currWheel = buf[0];
-
-
-
 
 
 	/*
@@ -230,13 +232,19 @@ currWheel = buf[0];
   	}
   	*/
 
-
-	if(blinking > 0){
+	//pulses light
+	if(blinking > 0 || (globalFail != 0)){
 		currBlinkCount ++;
 		if(currBlinkCount >= maxBlinkCount){
 			currBlinkCount = 0;
 			if(blinkSend == 0){
-				blinkSend = blinking;
+				if(globalFail == 0){
+					blinkSend = blinking;
+				}
+				else{
+					blinkSend = 3;
+				}
+
 			}
 			else{
 				blinkSend = 0;
@@ -249,12 +257,22 @@ currWheel = buf[0];
 	}
 
 
+	//No Failure --> Send Normal
+	if(globalFail == 0){
+		TxData[0] = buf[0]; //Wheel Angle (50 -100)
+		TxData[1] = buf[1]; // Throttle Angle (0-100)
+		TxData[2] = buf[2]; // Brake (0-100)
+		TxData[3] = blinkSend; // Blinkers (0, 1, 2)
+	}
+	//Failure --> Send Error State
+	else{
+		TxData[0] = buf[0]; //Wheel Angle (50 - 100) --> still works in failure
+		TxData[1] = 0; // No Throttle (0)
+		TxData[2] = 100; // Locked Brakes (100)
+		TxData[3] = blinkSend; // Hazard State (3))
 
+	}
 
-  	TxData[0] = buf[0]; //Wheel Angle (25-125
-  	TxData[1] = buf[1]; // Throttle Angle (0-100)
-  	TxData[2] = buf[2]; // Brake (0-100)
-  	TxData[3] = blinkSend; // Blinkers (0, 1, 2)
 
   	if (HAL_CAN_AddTxMessage(&hcan, &TxHeader, TxData, &TxMailbox) != HAL_OK)
   	{
@@ -408,7 +426,7 @@ static void MX_CAN_Init(void)
   TxHeader.ExtId = 0x01;
   TxHeader.RTR = CAN_RTR_DATA;
   TxHeader.IDE = CAN_ID_STD;
-  TxHeader.DLC = 4;
+  TxHeader.DLC = 8;
   TxHeader.TransmitGlobalTime = DISABLE;
 
   /* USER CODE END CAN_Init 2 */
@@ -551,16 +569,31 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
   if ((RxHeader.StdId == 0x321))
   {
     HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5,RxData[0]);
+    if(RxData[4] == 1){
+    	globalFail += 1;
+    }
+    else if(RxData[4] == 0){
+    	if(globalFail > 0){
+    		globalFail -= 1;
+    	}
+    }
   }
   uint8_t can_rcv[] = "CAN RCV OK\r\n";
   HAL_StatusTypeDef status1 = HAL_UART_Transmit(&huart2,can_rcv,sizeof(can_rcv),100);// Sending in normal mode
-	if (status1 == HAL_OK) {
+  if (status1 == HAL_OK) {
 
-	}
+  }
 
-	if (RxHeader.StdId == 0x322) {
-
-	}
+  if (RxHeader.StdId == 0x322) {
+	  if(RxData[4] == 1){
+		  globalFail += 1;
+	  }
+	  else if(RxData[4] == 0){
+		  if(globalFail > 0){
+			  globalFail -= 1;
+	      }
+	  }
+  }
 }
 
 /* USER CODE END 4 */
